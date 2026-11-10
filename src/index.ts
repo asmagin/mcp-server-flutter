@@ -4,28 +4,12 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import { executeTool } from "./commands.js";
 
 // Configuration schema
 const ConfigSchema = z.object({
   repoPath: z.string().min(1, "Repository path is required")
 });
-
-// Tool execution function
-async function executeCommand(command: string, repoPath: string): Promise<string> {
-  try {
-    const { stdout, stderr } = await execAsync(command, { cwd: repoPath });
-    if (stderr) {
-      return `Error: ${stderr}`;
-    }
-    return stdout;
-  } catch (error) {
-    return `Execution failed: ${(error as Error).message}`;
-  }
-}
 
 async function startServer(repoPath: string) {
   // Validate configuration
@@ -131,55 +115,12 @@ async function startServer(repoPath: string) {
 
   // Handle tool calls
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const args = request.params.arguments || {};
-    
-    switch (request.params.name) {
-      case "flutter_run": {
-        const target = args.target || "lib/main.dart";
-        const result = await executeCommand(`flutter run ${target}`, config.repoPath);
-        return { toolResult: result };
-      }
-      
-      case "flutter_generate": {
-        const result = await executeCommand(
-          "flutter pub run build_runner build --delete-conflicting-outputs",
-          config.repoPath
-        );
-        return { toolResult: result };
-      }
-      
-      case "dart_fix": {
-        const folder = args.folder || "lib";
-        const result = await executeCommand(`dart fix --apply ${folder}`, config.repoPath);
-        return { toolResult: result };
-      }
-      
-      case "dart_run": {
-        const file = args.file;
-        const result = await executeCommand(`dart run ${file}`, config.repoPath);
-        return { toolResult: result };
-      }
-      
-      case "flutter_build": {
-        const platform = args.platform || "apk";
-        const result = await executeCommand(`flutter build ${platform}`, config.repoPath);
-        return { toolResult: result };
-      }
-      
-      case "flutter_analyze": {
-        const result = await executeCommand("flutter analyze", config.repoPath);
-        return { toolResult: result };
-      }
-
-      case "flutter_test": {
-        const testFile = args.test ? args.test : "";
-        const result = await executeCommand(`flutter test ${testFile}`, config.repoPath);
-        return { toolResult: result };
-      }
-      
-      default:
-        throw new Error(`Unknown tool: ${request.params.name}`);
-    }
+    const result = await executeTool(
+      request.params.name,
+      request.params.arguments ?? {},
+      config.repoPath
+    );
+    return { toolResult: result };
   });
 
   // Connect server to transport
